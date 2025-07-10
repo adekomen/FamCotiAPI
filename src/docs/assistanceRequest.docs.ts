@@ -89,7 +89,7 @@
  *         name: sort
  *         schema:
  *           type: string
- *         description: Tri, ex: createdAt:desc
+ *         description: "Tri, ex: createdAt:desc"
  *       - in: query
  *         name: page
  *         schema:
