@@ -1,0 +1,255 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+  // output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+
+model User {
+  id                      BigInt                  @id @default(autoincrement())
+  name                    String
+  email                   String                  @unique
+  emailVerifiedAt         DateTime?
+  password                String
+  isAdmin                 Boolean                 @default(false)
+  isActive                Boolean                 @default(true)
+  createdAt               DateTime                @default(now())
+  updatedAt               DateTime                @updatedAt
+
+  // Relations inverses pour la clarté et la non-ambiguïté
+  profile                 Profile?                @relation("UserProfile") // Relation inverse de Profile.user
+  childrenProfiles        Profile[]               @relation("ParentProfile") // Relation inverse de Profile.parent
+
+  eventsCreated           Event[]                 @relation("CreatedByEvent")
+  eventsConcerned         Event[]                 @relation("ConcernedUserEvent") // NOUVEAU: Relation inverse pour Event.concernedUser
+  sanctions               Sanction[]              @relation("SanctionedUser")
+  sanctionsCreated        Sanction[]              @relation("CreatedBySanction")
+  sanctionsResolved       Sanction[]              @relation("ResolvedBySanction")
+  monthlyContributions    MonthlyContribution[]
+  eventContributions      EventContribution[]
+  assistanceRequests      AssistanceRequest[]
+  fundTransactions        FundTransaction[]       @relation("FundTransactionCreatedBy")
+  meetingAttendances      MeetingAttendance[]
+  familyMeetingsCreated   FamilyMeeting[]         @relation("CreatedByMeeting")
+  memberCategories        MemberCategoryUser[] // Relation Many-to-Many via MemberCategoryUser
+}
+
+model Profile {
+  id               BigInt    @id @default(autoincrement())
+  userId           BigInt    @unique
+  user             User      @relation("UserProfile", fields: [userId], references: [id], onDelete: Cascade)
+  phoneNumber      String?
+  address          String?
+  dateOfBirth      DateTime?
+  profilePhotoPath String?
+  isMarried        Boolean   @default(false)
+  isEmployed       Boolean   @default(false)
+  isCivilServant   Boolean   @default(false)
+  parentId         BigInt?
+  parent           User?     @relation("ParentProfile", fields: [parentId], references: [id], onDelete: SetNull)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+}
+
+model MemberCategory {
+  id                          BigInt                 @id @default(autoincrement())
+  name                        String
+  description                 String?
+  monthlyContributionAmount   Float
+  users                       MemberCategoryUser[]
+  createdAt                   DateTime               @default(now())
+  updatedAt                   DateTime               @updatedAt
+}
+
+model MemberCategoryUser {
+  userId     BigInt
+  categoryId BigInt
+  user       User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  category   MemberCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  createdAt  DateTime       @default(now())
+  updatedAt  DateTime       @updatedAt
+
+  @@id([userId, categoryId])
+}
+
+model MonthlyContribution {
+  id                   BigInt            @id @default(autoincrement())
+  userId               BigInt
+  user                 User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  amount               Float
+  month                Int
+  year                 Int
+  paymentDate          DateTime          @db.Date // Changed to Date as per SQL schema
+  paymentMethod        String?
+  transactionReference String?
+  notes                String?
+  createdAt            DateTime          @default(now())
+  updatedAt            DateTime          @updatedAt
+  fundTransactions     FundTransaction[]
+}
+
+model EventType {
+  id           BigInt    @id @default(autoincrement())
+  name         String
+  description  String?
+  isHappyEvent Boolean   @default(true)
+  events       Event[]
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+}
+
+model Event {
+  id                   BigInt                @id @default(autoincrement())
+  title                String
+  description          String?
+  eventTypeId          BigInt
+  eventType            EventType             @relation(fields: [eventTypeId], references: [id])
+  concernedUserId      BigInt?
+  concernedUser        User?                 @relation("ConcernedUserEvent", fields: [concernedUserId], references: [id], onDelete: SetNull)
+  startDate            DateTime              @db.Date
+  endDate              DateTime?             @db.Date
+  location             String?
+  isActive             Boolean               @default(true)
+  contributionRequired Boolean               @default(true)
+  // --- AJOUTS IMPORTANTS ICI ---
+  isPrivate            Boolean               @default(false) // Indique si l'événement est privé
+  isRecurring          Boolean               @default(false) // Indique si l'événement est récurrent
+  recurrencePattern    String?               // Motif de récurrence (ex: "daily", "weekly", "monthly")
+  // --- FIN DES AJOUTS ---
+  createdById          BigInt
+  createdBy            User                  @relation("CreatedByEvent", fields: [createdById], references: [id], onDelete: Cascade)
+  createdAt            DateTime              @default(now())
+  updatedAt            DateTime              @updatedAt
+  eventContributions   EventContribution[]
+  assistanceRequests   AssistanceRequest[]
+}
+
+model EventContribution {
+  id                   BigInt            @id @default(autoincrement())
+  eventId              BigInt
+  event                Event             @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  userId               BigInt
+  user                 User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  amount               Float
+  paymentDate          DateTime          @db.Date // Changed to Date as per SQL schema
+  paymentMethod        String?
+  transactionReference String?
+  notes                String?
+  createdAt            DateTime          @default(now())
+  updatedAt            DateTime          @updatedAt
+  fundTransactions     FundTransaction[]
+}
+
+model AssistanceRequest {
+  id                  BigInt            @id @default(autoincrement())
+  userId              BigInt
+  user                User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  eventId             BigInt?
+  event               Event?            @relation(fields: [eventId], references: [id], onDelete: SetNull)
+  title               String
+  description         String
+  amountRequested     Float
+  status              String            @default("pending")
+  approvedAmount      Float?
+  approvalDate        DateTime?         @db.Date // Changed to Date as per SQL schema
+  paymentDate         DateTime?         @db.Date // Changed to Date as per SQL schema
+  rejectedReason      String?
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
+  fundTransactions    FundTransaction[]
+}
+
+model FundTransaction {
+  id                      BigInt              @id @default(autoincrement())
+  transactionType         String
+  amount                  Float
+  description             String?
+  transactionDate         DateTime            @db.Date // Changed to Date as per SQL schema
+  monthlyContributionId   BigInt?
+  monthlyContribution     MonthlyContribution? @relation(fields: [monthlyContributionId], references: [id], onDelete: SetNull)
+  eventContributionId     BigInt?
+  eventContribution       EventContribution?   @relation(fields: [eventContributionId], references: [id], onDelete: SetNull)
+  assistanceRequestId     BigInt?
+  assistanceRequest       AssistanceRequest?   @relation(fields: [assistanceRequestId], references: [id], onDelete: SetNull)
+  balanceAfter            Float
+  createdById             BigInt
+  createdBy               User                @relation("FundTransactionCreatedBy", fields: [createdById], references: [id], onDelete: Cascade)
+  createdAt               DateTime            @default(now())
+  updatedAt               DateTime            @updatedAt
+}
+
+model Sanction {
+  id              BigInt    @id @default(autoincrement())
+  userId          BigInt
+  user            User      @relation("SanctionedUser", fields: [userId], references: [id], onDelete: Cascade)
+  reason          String
+  startDate       DateTime  @db.Date // Changed to Date as per SQL schema
+  endDate         DateTime? @db.Date // Changed to Date as per SQL schema
+  resolvedAt      DateTime? @db.Date // Changed to Date as per SQL schema
+  resolvedById    BigInt?
+  resolvedBy      User?     @relation("ResolvedBySanction", fields: [resolvedById], references: [id], onDelete: SetNull)
+  resolutionNotes String?
+  createdById     BigInt
+  createdBy       User      @relation("CreatedBySanction", fields: [createdById], references: [id], onDelete: Cascade)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+}
+
+model FamilyMeeting {
+  id                   BigInt            @id @default(autoincrement())
+  title                String
+  description          String?
+  meetingDate          DateTime          @db.Date // Changed to Date as per SQL schema
+  location             String
+  startTime            String // Utiliser String pour TIME si le format exact n'est pas DateTime
+  endTime              String? // Utiliser String pour TIME si le format exact n'est pas DateTime
+  createdById          BigInt
+  createdBy            User              @relation("CreatedByMeeting", fields: [createdById], references: [id], onDelete: Cascade)
+  createdAt            DateTime          @default(now())
+  updatedAt            DateTime          @updatedAt
+  meetingAttendances   MeetingAttendance[]
+}
+
+model MeetingAttendance {
+  id               BigInt        @id @default(autoincrement())
+  meetingId        BigInt
+  meeting          FamilyMeeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  userId           BigInt
+  user             User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  attendanceStatus String        @default("absent")
+  excuseReason     String?
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  @@unique([userId, meetingId])
+}
+
+model Notification {
+  id             String    @id @default(uuid())
+  type           String
+  notifiableType String
+  notifiableId   BigInt
+  data           String
+  readAt         DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+}
+
+model Setting {
+  id          BigInt   @id @default(autoincrement())
+  key         String   @unique
+  value       String?
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
